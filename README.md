@@ -29,3 +29,25 @@ You can easily run this entire pipeline on your local or cloud n8n instance.
 **1. Clone the repository:**
 ```bash
 git clone [https://github.com/vincentz89/serverless-ai-invoice-pipeline.git](https://github.com/vincentz89/serverless-ai-invoice-pipeline.git)
+
+**2. Import the Workflow:**
+
+Open your n8n workspace.
+Open the invoice_processing_pipeline.json file in any text editor and copy the contents.
+Paste the JSON directly onto a blank n8n canvas.
+
+**3. Configure Credentials:**
+
+Once imported, n8n will prompt you to connect your own credentials for:
+Gmail OAuth2
+Groq API (for the LLM)
+PostgreSQL Database
+Cloudinary API
+(Note: The OCR.space node is pre-configured with a public testing key (helloworld) so image extraction will work out of the box).
+
+**💡 Usage**
+
+Once activated, simply send an email to the connected Gmail account with:
+invoice in the subject line.
+A .pdf, .png, .jpg, or .txt file attached.
+The pipeline will instantly download the attachment, extract the structured financial data, run the audit, save the record to Postgres, upload the file to Cloudinary, and send an automated email alert if manual review is required.
