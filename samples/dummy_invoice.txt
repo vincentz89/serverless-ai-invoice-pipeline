@@ -1,0 +1,19 @@
+ACME Supplies Ltd.
+123 Industrial Way, Suite 400
+
+INVOICE
+Invoice Number: INV-2026-9081
+Invoice Date: 2026-10-10
+
+Bill To:
+Internal Purchasing Dept.
+
+Description                   Qty    Unit Price    Total
+--------------------------------------------------------
+Cloud Server Infrastructure     1      $150.00   $150.00
+Maintenance Support Service     1       $50.00    $50.00
+--------------------------------------------------------
+Subtotal:                                        $200.00
+Tax (10%):                                        $20.00
+Total Amount:                                    $220.00
+Currency: USD

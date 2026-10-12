@@ -1,0 +1,839 @@
+{
+  "name": "Agentic Invoice Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        560
+      ],
+      "id": "fd23778d-b5f7-4678-b0de-87cd528d2a7f",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "ofuKZyfPVfb06tKG",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.text || $json.ParsedResults[0].ParsedText }}",
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "{\n  \"vendor_name\": \"ACME Supplies Ltd.\",\n  \"has_invoice_number\": true,\n  \"invoice_number\": \"INV-2026-9081\",\n  \"invoice_date\": \"2026-10-10\",\n  \"currency\": \"USD\",\n  \"subtotal\": 200.00,\n  \"tax_amount\": 20.00,\n  \"total_amount\": 220.00\n}",
+        "options": {
+          "systemPromptTemplate": "Extract the requested fields from the text. If a value is missing or uncertain, return null. Do not hallucinate or guess. If a requested field is not explicitly found in the provided text, you MUST return null. Do strictly NOT guess, generate, or hallucinate missing values."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        1216,
+        336
+      ],
+      "id": "67bf033e-15c8-4364-93c2-652ba6f9de0f",
+      "name": "Information Extractor"
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "maxResults": 1,
+        "filters": {
+          "q": "subject:invoice has:attachment",
+          "readStatus": "unread"
+        },
+        "options": {
+          "dataPropertyAttachmentsPrefixName": "attachment_",
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        96,
+        528
+      ],
+      "id": "ae179da1-3d39-4445-80b3-04aa3bda9edd",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GuLWsMZqhnArYslG",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const returnItems = [];\n\nfor (const item of $input.all()) {\n  const body = item.json;\n  const binaryData = item.binary || {};\n  \n  const fileKeys = Object.keys(binaryData);\n  \n  // Safely grab the ID from the new Gmail structure\n  const refId = body.messageId || body.id || \"EMAIL-\" + Date.now();\n  \n  // Safely grab the sender's email address from the nested 'from' object\n  let sender = \"Unknown Sender\";\n  if (body.from && body.from.text) {\n      sender = body.from.text;\n  } else if (body.From) {\n      sender = body.From;\n  }\n  \n  // Check if an attachment actually exists\n  if (fileKeys.length === 0) {\n    returnItems.push({\n      json: { is_valid: false, error_message: \"Validation Failed: No file attached\", reference_id: refId }\n    });\n    continue;\n  }\n  \n  // Identify and grab the first attachment\n  const fileKey = fileKeys[0];\n  const file = binaryData[fileKey];\n  \n  // Validate the file type\n  const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'text/plain'];\n  if (!allowedMimeTypes.includes(file.mimeType)) {\n    returnItems.push({\n      json: { is_valid: false, error_message: \"Validation Failed: Invalid file type\", reference_id: refId }\n    });\n    continue;\n  }\n  \n  // Pass the data downstream and rename the file to \"invoice_document\"\n  returnItems.push({\n    json: {\n      is_valid: true,\n      reference_id: refId,\n      source_system: sender,\n      file_name: file.fileName,\n      mime_type: file.mimeType\n    },\n    binary: {\n      invoice_document: file\n    }\n  });\n}\n\nreturn returnItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        528
+      ],
+      "id": "a8418fae-d729-4bcb-9ab3-7fd74b66cc58",
+      "name": "Validate Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "be4fe60c-974a-4e79-8bfa-0ff1dfc1a0ac",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        544,
+        528
+      ],
+      "id": "a5ce92aa-2f7c-417b-8f24-eaf63a447467",
+      "name": "Is Valid"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "=  {{ $('Validate Input').item.binary.invoice_document.mimeType }}",
+                    "rightValue": "pdf",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    },
+                    "id": "f9ef2d29-1640-47a2-bb94-7d6de00b6208"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "53e2082f-1113-496e-8d1b-698e87143188",
+                    "leftValue": "=  {{ $('Validate Input').item.binary.invoice_document.mimeType }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e7a8a9bf-f2ee-4063-af44-b80167cad1fa",
+                    "leftValue": "=  {{ $('Validate Input').item.binary.invoice_document.mimeType }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        768,
+        400
+      ],
+      "id": "44ab34e1-0931-4432-8dd0-c79550f80574",
+      "name": "Switch File Type"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "invoice_document",
+        "destinationKey": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        992,
+        416
+      ],
+      "id": "44523ac1-28ef-4809-b32a-016cd5aa3d09",
+      "name": "Extract Text File"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "invoice_document",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        992,
+        224
+      ],
+      "id": "dc08577a-e614-47c4-8bde-51fdd95adec8",
+      "name": "Extract PDF File"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ocr.space/parse/image",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "helloworld"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "invoice_document"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        992,
+        624
+      ],
+      "id": "7ac2db6b-137c-4155-99c5-311252f2af8c",
+      "name": "Extract Image File"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4d90eb16-2d47-4fcc-8cb4-b09db9a9b569",
+              "name": "reference_id",
+              "value": "={{ $('Validate Input').item.json.reference_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a5df6267-34e2-4b75-9969-929fb6585296",
+              "name": "source_system",
+              "value": "={{ $('Validate Input').item.json.source_system }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1568,
+        336
+      ],
+      "id": "02809a40-20c6-4320-b3a0-42c276c94917",
+      "name": "Compile Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Grab the entire incoming item (JSON and binary)\nconst item = $input.first();\nconst data = item.json; \nconst invoice = data.output;\n\n// --- AUDIT CHECKS ---\nlet auditFlags = [];\n\n// Check A: Missing Invoice Number\n// (Triggers if it is null, undefined, or just an empty string)\nif (!invoice.invoice_number || String(invoice.invoice_number).trim() === \"\") {\n    auditFlags.push(\"MISSING_INVOICE_NUMBER\");\n}\n\n// Check B: Math Validation\nif (invoice.subtotal && invoice.tax_amount && invoice.total_amount) {\n    const calculatedTotal = invoice.subtotal + invoice.tax_amount;\n    if (calculatedTotal !== invoice.total_amount) {\n        auditFlags.push(\"MATH_MISMATCH\");\n    }\n}\n\n// If any errors were caught, combine them into the audit_flag field\nif (auditFlags.length > 0) {\n    data.audit_flag = auditFlags.join(\" | \");\n} else {\n    data.audit_flag = null; \n}\n\n// --- RE-ATTACH BINARY FILE ---\nitem.binary = $('Validate Input').first().binary;\n\nreturn item;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        336
+      ],
+      "id": "c571b63a-1aca-464d-844f-30e964023ca7",
+      "name": "Audit Check"
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "file": "file",
+        "resource_type_file": "={{ $binary.file.mimeType.includes('image') ? 'image' : 'raw' }}",
+        "additionalFieldsFile": {}
+      },
+      "type": "n8n-nodes-cloudinary.cloudinary",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        336
+      ],
+      "id": "18005feb-63d1-4e06-abc0-dd67a2594c77",
+      "name": "Upload an asset in cloudinary",
+      "credentials": {
+        "cloudinaryApi": {
+          "id": "Ygpuzp5ytvb5CCdJ",
+          "name": "Cloudinary account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "=invoices",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reference_id": "={{ $('Audit Check').item.json.reference_id }}",
+            "source_system": "={{ $('Audit Check').item.json.source_system }}",
+            "vendor_name": "={{ $('Audit Check').item.json.output.vendor_name }}",
+            "invoice_number": "={{ $('Audit Check').item.json.output.invoice_number }}",
+            "invoice_date": "={{ $('Audit Check').item.json.output.invoice_date }}",
+            "currency": "={{ $('Audit Check').item.json.output.currency }}",
+            "subtotal": "={{ $('Audit Check').item.json.output.subtotal }}",
+            "tax_amount": "={{ $('Audit Check').item.json.output.tax_amount }}",
+            "total_amount": "={{ $('Audit Check').item.json.output.total_amount }}",
+            "audit_flag": "={{ $('Audit Check').item.json.audit_flag || null }}",
+            "file_url": "={{ $json.secure_url }}"
+          },
+          "matchingColumns": [
+            "reference_id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reference_id",
+              "displayName": "reference_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_system",
+              "displayName": "source_system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "vendor_name",
+              "displayName": "vendor_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "invoice_number",
+              "displayName": "invoice_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "invoice_date",
+              "displayName": "invoice_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "tax_amount",
+              "displayName": "tax_amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "total_amount",
+              "displayName": "total_amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "audit_flag",
+              "displayName": "audit_flag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "file_url",
+              "displayName": "file_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2240,
+        336
+      ],
+      "id": "2168f0d0-7fd4-4055-9f80-c9306609ef35",
+      "name": "Insert or update rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "aVQFLYv6lXPVfpdq",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "480ec89b-d83d-423d-aca7-63ecdd6dfcd3",
+              "leftValue": "={{ $json.audit_flag }}",
+              "rightValue": "MATH_MISMATCH",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2464,
+        336
+      ],
+      "id": "9c29a293-cbea-4304-ad99-e3001a6d43c9",
+      "name": "Has no error"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2688,
+        336
+      ],
+      "id": "d92fafd0-0000-4563-a878-af26a35711fc",
+      "name": "Success Respond"
+    },
+    {
+      "parameters": {
+        "sendTo": "crisvincentcastro@gmail.com",
+        "subject": "=Action Required: Invoice {{ $json.reference_id }} needs manual review",
+        "emailType": "text",
+        "message": "=The automated pipeline flagged an invoice for manual review.\n\nReference ID: {{ $json.reference_id }}\nVendor: {{ $json.output.vendor_name }}\nExtracted Total: {{ $json.output.total_amount }}\n\nPlease review the original file in the ingestion inbox against the extracted data.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        528
+      ],
+      "id": "d572c99f-5c91-4053-a8e5-3140806e838c",
+      "name": "Send email notification",
+      "webhookId": "8f9b01ce-dad5-4a08-bb5f-918ae4338ea1",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GuLWsMZqhnArYslG",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"status\": \"flagged_for_review\",\n  \"data\": $('Audit Check').item.json.output,\n  \"audit_log\": $('Insert or update rows in a table').item.json.audit_flag\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2912,
+        528
+      ],
+      "id": "753566b5-faaa-4131-aff9-1e191cf8208c",
+      "name": "Failed Respond"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        768,
+        624
+      ],
+      "id": "c7c74af1-39e6-43b1-b3cd-8bc07e86f78c",
+      "name": "Invalid Respond"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Information Extractor": {
+      "main": [
+        [
+          {
+            "node": "Compile Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Is Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid": {
+      "main": [
+        [
+          {
+            "node": "Switch File Type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch File Type": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Image File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text File": {
+      "main": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF File": {
+      "main": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Image File": {
+      "main": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Data": {
+      "main": [
+        [
+          {
+            "node": "Audit Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Check": {
+      "main": [
+        [
+          {
+            "node": "Upload an asset in cloudinary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload an asset in cloudinary": {
+      "main": [
+        [
+          {
+            "node": "Insert or update rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert or update rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Has no error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has no error": {
+      "main": [
+        [
+          {
+            "node": "Success Respond",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send email notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email notification": {
+      "main": [
+        [
+          {
+            "node": "Failed Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "24360a75-5736-4198-9b05-7838602dfd4e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0085e3029be6085baa60234a3ebd421bc92e51729f250229957748bb5b752eaf"
+  },
+  "nodeGroups": [],
+  "id": "rSXumuhBj99s9lH7",
+  "tags": []
+}
